@@ -1,46 +1,36 @@
-# bookchaowalit-linktree-frontend — Product brief
+# Broadcast (link page) — Product truth
 
-**Slug:** `bookchaowalit-website/bookchaowalit-linktree-frontend`  
-**Generated:** 2026-08-11 (bulk Book Dev closeout)  
-**Status:** starter / portfolio boundary
+> Inferred from the code and copy (no user interview). Checked against the portfolio card claims review
+> (`portfolio-site-web/docs/audits/CARD-CLAIMS-REVIEW-2026-10.md`, row `linktree`) on 2026-10-23.
 
-## Purpose
+## What it is
 
-Portfolio repository under Book Dev. This brief records ownership and the
-current honest status so the nested tree is not an empty shell in the task
-system.
+A client-only link-in-bio page: three authored links plus an editor that adds or removes links in this browser's localStorage. Nothing is published to a server.
 
-## Runnable path
+## Who it is for
 
-See `README.md` for install and run instructions when present.
+A portfolio visitor who wants to see a personal link page and try editing it locally.
 
-## Limits
+## What works today
 
-- Not claimed as production-ready unless README and tests prove it.
-- Mobile smoke / emulator acceptance is separate and toolchain-dependent.
+1. The three authored links (portfolio, GitHub, knowledge hub) open in a new tab.
+2. Edit mode: add a link (label plus an http(s) URL; other schemes are refused) or remove one. The list is saved in localStorage and survives a reload; a saved value of the wrong shape, or a saved link that is not http(s), is ignored.
+3. Share page copies the page URL to the clipboard.
+4. `/api/mcp` answers JSON-RPC with `get_links` and `search_links` over the authored links only (visitor edits stay in their browser); unknown tools and methods get JSON-RPC errors.
+5. Front-end and server errors go to Sentry (errors only, personal data stripped) when `NEXT_PUBLIC_SENTRY_DSN` is set.
 
-## Source README excerpt
+## What does not work (and must not be claimed)
 
-```
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+- No themes, categories, drag-to-reorder, visibility toggles or click analytics (removed from the portfolio card in the 2026-10 review).
+- Edits are not published: other visitors always see the authored three links.
+- No account, no short links, no redirect server.
 
-## Getting Started
+## Live URL and deploy state
 
-First, run the development server:
+- Live: https://linktree.bookchaowalit.com (HTTP 200 on 2026-10-23).
+- The Vercel project `bookchaowalit-linktree-frontend` is deployed only by CLI. Its last production deploy is the CVE patch (2026-10-23, CLI, commit ced177a). Its Git link names the old repository `bookchaowalit/bookchaowalit-linktree-frontend`, so a push to `main` does not deploy: the L2 work stays undeployed until the owner reconnects Vercel Git to this repository (owner action D9). `NEXT_PUBLIC_SENTRY_DSN` is already set on the Vercel project (Sentry project `marketing-linktree-web`, org `personal-yu0`).
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+## Boundaries
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
-
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
-
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize an
-```
+- Browser-only apart from the stateless `/api/mcp` route.
+- Separate job from marketing-url-shortener-web, marketing-redirect-manager-web and marketing-link-analytics-web (see the consolidation note in the b-website result file).
