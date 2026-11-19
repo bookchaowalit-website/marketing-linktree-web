@@ -14,7 +14,8 @@ let root: Root;
 let host: HTMLDivElement;
 const $ = (selector: string) => host.querySelector(selector) as HTMLElement | null;
 const button = (text: string) => [...host.querySelectorAll("button")].find((b) => (b.getAttribute("aria-label") ?? b.textContent?.trim())?.startsWith(text)) as HTMLButtonElement;
-const press = (el: Element) => act(() => { el.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+// detail 0 = keyboard (Enter/Space) click, 1 = pointer click.
+const press = (el: Element, detail = 1) => act(() => { el.dispatchEvent(new MouseEvent("click", { bubbles: true, detail })); });
 const labels = () => [...host.querySelectorAll(".lt-label, .as-row h3")].map((el) => el.textContent);
 const type = (input: HTMLInputElement, value: string) => act(() => {
   Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(input, value);
@@ -59,13 +60,37 @@ describe("public link page", () => {
     expect(button("Link copied")).toBeTruthy();
   });
 
-  it("uses the share sheet when there is one and says so when sharing fails", async () => {
-    const share = vi.fn().mockRejectedValue(new Error("blocked"));
+  it("copies the link instead when the share sheet cannot open, and shows the result", async () => {
+    const share = vi.fn().mockRejectedValue(Object.assign(new Error("blocked"), { name: "NotAllowedError" }));
+    const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, "share", { value: share, configurable: true });
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
     act(() => root.render(<Home />));
     await act(async () => { button("Share this page").click(); });
     expect(share).toHaveBeenCalled();
-    expect(host.textContent).toContain("Could not share");
+    expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/`);
+    expect(button("Link copied")).toBeTruthy();
+    const result = $(".lt-share-result");
+    expect(result?.getAttribute("role")).toBe("status");
+    expect(result?.textContent).toBe("Page address copied to the clipboard.");
+  });
+
+  it("shows the address to copy by hand when neither sharing nor the clipboard works", async () => {
+    Object.defineProperty(navigator, "share", { value: vi.fn().mockRejectedValue(new Error("blocked")), configurable: true });
+    Object.defineProperty(navigator, "clipboard", { value: { writeText: vi.fn().mockRejectedValue(new Error("denied")) }, configurable: true });
+    act(() => root.render(<Home />));
+    await act(async () => { button("Share this page").click(); });
+    expect($(".lt-share-result")?.textContent).toBe(`Could not share or copy. The address is ${window.location.origin}/`);
+  });
+
+  it("treats a dismissed share sheet as no error and does not copy", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "share", { value: vi.fn().mockRejectedValue(Object.assign(new Error("cancel"), { name: "AbortError" })), configurable: true });
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    act(() => root.render(<Home />));
+    await act(async () => { button("Share this page").click(); });
+    expect(writeText).not.toHaveBeenCalled();
+    expect($(".lt-share-result")?.textContent).toBe("");
   });
 
   it("points to the hub when this browser removed every link", () => {
@@ -113,5 +138,54 @@ describe("owner editor at /edit", () => {
     expect($(".as-empty")?.textContent).toContain("Add the first link above");
     press(button("Restore default links"));
     expect(labels()).toHaveLength(3);
+  });
+
+  it("consecutive removes restore together with one Undo, each in its place", () => {
+    vi.useFakeTimers();
+    act(() => root.render(<EditLinks />));
+    const before = labels();
+    expect(before).toHaveLength(3);
+    press(button(`Remove ${before[1]}`));
+    act(() => { vi.advanceTimersByTime(4000); });
+    press(button(`Remove ${before[0]}`));
+    expect(labels()).toEqual([before[2]]);
+    expect($(".as-toast span")?.textContent).toBe("Removed 2 links");
+    expect(button("Undo").getAttribute("aria-label")).toBe("Undo remove of 2 links");
+    // The second removal restarted the 6 s window.
+    act(() => { vi.advanceTimersByTime(4000); });
+    press(button("Undo"));
+    expect(labels()).toEqual(before);
+    expect(JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? "[]")).toHaveLength(3);
+    expect($('[aria-live="polite"]')?.textContent).toBe("Restored 2 links.");
+    expect($(".as-toast")).toBeNull();
+  });
+
+  it("keyboard remove focuses Undo; Undo focuses the restored link, Escape the next one", () => {
+    act(() => root.render(<EditLinks />));
+    const [first, second, third] = labels();
+    press(button(`Remove ${first}`), 0);
+    expect(document.activeElement).toBe(button("Undo remove"));
+    press(button("Undo remove"), 0);
+    expect(labels()[0]).toBe(first);
+    expect(document.activeElement).toBe(button(`Remove ${first}`));
+    press(button(`Remove ${first}`), 0);
+    act(() => { $(".as-toast")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); });
+    expect($(".as-toast")).toBeNull();
+    expect(document.activeElement).toBe(button(`Remove ${second}`));
+    // The last link: Escape lands on the one before it.
+    press(button(`Remove ${third}`), 0);
+    act(() => { $(".as-toast")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); });
+    expect(document.activeElement).toBe(button(`Remove ${second}`));
+  });
+
+  it("a pointer remove leaves focus alone and the toast reserves its height while it shows", () => {
+    vi.useFakeTimers();
+    act(() => root.render(<EditLinks />));
+    press(button("Remove Portfolio"));
+    expect(document.activeElement).not.toBe(button("Undo remove"));
+    expect(document.documentElement.style.getPropertyValue("--as-toast-space")).toMatch(/px$/);
+    act(() => { vi.advanceTimersByTime(6000); });
+    expect($(".as-toast")).toBeNull();
+    expect(document.documentElement.style.getPropertyValue("--as-toast-space")).toBe("");
   });
 });

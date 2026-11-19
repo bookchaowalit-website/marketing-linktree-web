@@ -1,38 +1,53 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
 import { AppFoot, AppTop, PlusIcon } from "@/components/app-shell";
 import { DEFAULT_LINKS, addLink, linkError, linkHost, linkStore, removeLink, restoreLink, type LinkItem } from "@/lib/linktree";
 
 const SOURCE = "https://github.com/bookchaowalit-website/marketing-linktree-web";
+// index: where it sat in the list when removed. next / prev: the links around it, for focus after Escape.
+type RemovedEntry = { link: LinkItem; index: number; next?: string; prev?: string };
+type RemovedBatch = { items: RemovedEntry[]; viaKeyboard: boolean };
+const removedLabel = (items: RemovedEntry[]) => (items.length === 1 ? `Removed “${items[0].link.label}”` : `Removed ${items.length} links`);
 
 function createId(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
   return `link-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-/** Shares the page: the native share sheet where there is one, else the address on the clipboard. */
+/**
+ * Shares the page: the native share sheet where there is one, else (or when the sheet cannot open, e.g. in an
+ * iframe without web-share) the address on the clipboard. Dismissing the sheet is not a failure. The result is
+ * shown next to the button and announced.
+ */
 function ShareButton() {
   const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
   async function share() {
     const url = window.location.origin + "/";
-    try {
-      if (typeof navigator.share === "function") {
+    if (typeof navigator.share === "function") {
+      try {
         await navigator.share({ title: "@bookchaowalit", url });
+        setState("idle");
         return;
+      } catch (error) {
+        if (error instanceof Error && error.name === "AbortError") return;
       }
+    }
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error("no clipboard");
       await navigator.clipboard.writeText(url);
       setState("copied");
-      window.setTimeout(() => setState("idle"), 1800);
+      window.setTimeout(() => setState((current) => (current === "copied" ? "idle" : current)), 4000);
     } catch {
       setState("failed");
     }
   }
+  const message = state === "copied" ? "Page address copied to the clipboard." : state === "failed" ? `Could not share or copy. The address is ${window.location.origin}/` : "";
   return (
     <>
       <button type="button" className="as-plain" onClick={() => void share()}>{state === "copied" ? "Link copied" : "Share this page"}</button>
-      <span className="as-sr" role="status">{state === "copied" ? "Page address copied." : state === "failed" ? "Could not share; copy the address from the browser bar." : ""}</span>
+      <p className="lt-share-result" role="status">{message}</p>
     </>
   );
 }
@@ -43,16 +58,48 @@ export function LinkPage({ editing }: { editing: boolean }) {
   const [label, setLabel] = useState("");
   const [url, setUrl] = useState("");
   const [error, setError] = useState<ReturnType<typeof linkError>>(null);
-  const [removed, setRemoved] = useState<{ link: LinkItem; index: number } | null>(null);
+  // Every removal still inside the Undo window: one Undo puts them all back where they were.
+  const [removed, setRemovedState] = useState<RemovedBatch | null>(null);
+  // The latest batch, so two removals before a re-render still both land in it.
+  const removedRef = useRef<RemovedBatch | null>(null);
+  const setRemoved = (batch: RemovedBatch | null) => { removedRef.current = batch; setRemovedState(batch); };
   const [toastFocused, setToastFocused] = useState(false);
   const [announcement, setAnnouncement] = useState("");
   const labelRef = useRef<HTMLInputElement>(null);
   const urlRef = useRef<HTMLInputElement>(null);
+  const undoRef = useRef<HTMLButtonElement>(null);
+  const toastRef = useRef<HTMLDivElement>(null);
+  const focusRowsNext = useRef<string[] | null>(null);
 
-  // The Undo toast closes 6 s after the latest removal, but never while it holds focus.
+  // A removal made from the keyboard moves focus to Undo (the focused Remove button has just gone).
+  useEffect(() => { if (removed?.viaKeyboard) undoRef.current?.focus(); }, [removed]);
+  // When the toast closes after Undo or Escape, focus goes back near the removed row once the list has re-rendered:
+  // the first of these rows still shown, else the Label field.
+  useEffect(() => {
+    const ids = focusRowsNext.current;
+    if (removed || !ids) return;
+    focusRowsNext.current = null;
+    const shown = [...document.querySelectorAll<HTMLElement>(".as-row[data-link]")];
+    const row = ids.map((id) => shown.find((entry) => entry.dataset.link === id)).find(Boolean);
+    (row?.querySelector<HTMLButtonElement>(".as-danger") ?? labelRef.current)?.focus();
+  }, [removed, links]);
+  // While the toast shows, reserve its height (plus its 24px offset and a gap) at the bottom of the page and in
+  // scroll-padding, so the footer links and anything focused behind it can scroll clear of it.
+  const toastShown = removed !== null;
+  useLayoutEffect(() => {
+    const toast = toastRef.current;
+    if (!toastShown || !toast) return;
+    const rootStyle = document.documentElement.style;
+    const reserve = () => rootStyle.setProperty("--as-toast-space", `${toast.offsetHeight + 32}px`);
+    reserve();
+    const observer = typeof ResizeObserver === "function" ? new ResizeObserver(reserve) : null;
+    observer?.observe(toast);
+    return () => { observer?.disconnect(); rootStyle.removeProperty("--as-toast-space"); };
+  }, [toastShown]);
+  // The Undo toast closes 6 s after the latest removal (each removal restarts it), but never while it holds focus.
   useEffect(() => {
     if (!removed || toastFocused) return;
-    const timer = window.setTimeout(() => setRemoved(null), 6000);
+    const timer = window.setTimeout(() => { removedRef.current = null; setRemovedState(null); }, 6000);
     return () => window.clearTimeout(timer);
   }, [removed, toastFocused]);
 
@@ -72,19 +119,33 @@ export function LinkPage({ editing }: { editing: boolean }) {
     labelRef.current?.focus();
   }
 
-  function remove(link: LinkItem) {
-    const index = links.findIndex((item) => item.id === link.id);
-    linkStore.update((current) => removeLink(current, link.id));
-    setRemoved({ link, index });
-    setAnnouncement(`Removed “${link.label}”. Undo is available for a few seconds.`);
+  function remove(link: LinkItem, viaKeyboard: boolean) {
+    const current = linkStore.getSnapshot();
+    const index = current.findIndex((item) => item.id === link.id);
+    if (index < 0) return;
+    linkStore.update((list) => removeLink(list, link.id));
+    const entry: RemovedEntry = { link: current[index], index, next: current[index + 1]?.id, prev: index > 0 ? current[index - 1].id : undefined };
+    const items = [...(removedRef.current?.items ?? []), entry];
+    setRemoved({ items, viaKeyboard });
+    setAnnouncement(`${removedLabel(items)}. Undo is available for a few seconds.`);
+  }
+
+  function closeToast(focusIds?: string[]) {
+    const last = removedRef.current?.items.at(-1);
+    // Dismissed: the link after the removed one, else the one before it.
+    focusRowsNext.current = focusIds ?? [last?.next, last?.prev].filter((id): id is string => Boolean(id));
+    setRemoved(null);
+    setToastFocused(false);
   }
 
   function undo() {
-    if (!removed) return;
-    linkStore.update((current) => restoreLink(current, removed.link, removed.index));
-    setAnnouncement(`Restored “${removed.link.label}”.`);
-    setRemoved(null);
-    setToastFocused(false);
+    const items = removedRef.current?.items;
+    if (!items?.length) return;
+    // Latest removal first, so each index refers to the list as it was just before that removal.
+    linkStore.update((current) => items.reduceRight((list, { link, index }) => restoreLink(list, link, index), current));
+    setAnnouncement(items.length === 1 ? `Restored “${items[0].link.label}”.` : `Restored ${items.length} links.`);
+    // Undone: back to the restored link (the latest one, where the user was last).
+    closeToast([items[items.length - 1].link.id]);
   }
 
   const fieldError = (field: "label" | "url") => (error?.field === field ? error.message : "");
@@ -124,12 +185,12 @@ export function LinkPage({ editing }: { editing: boolean }) {
           <ul className="as-list as-list-links" aria-label="Links">
             {links.map((link) =>
               editing ? (
-                <li className="as-row" key={link.id}>
+                <li className="as-row" key={link.id} data-link={link.id}>
                   <div>
                     <h3>{link.label}</h3>
                     <p>{linkHost(link.url)}</p>
                   </div>
-                  <button type="button" className="as-plain as-danger" aria-label={`Remove ${link.label}`} onClick={() => remove(link)}>Remove</button>
+                  <button type="button" className="as-plain as-danger" aria-label={`Remove ${link.label}`} onClick={(event) => remove(link, event.detail === 0)}>Remove</button>
                 </li>
               ) : (
                 <li key={link.id}>
@@ -168,15 +229,16 @@ export function LinkPage({ editing }: { editing: boolean }) {
       <p className="as-sr" role="status" aria-live="polite">{announcement}</p>
       {removed ? (
         <div
+          ref={toastRef}
           className="as-toast"
           role="group"
           aria-label="Undo remove"
           onFocus={() => setToastFocused(true)}
           onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setToastFocused(false); }}
-          onKeyDown={(event) => { if (event.key === "Escape") { setRemoved(null); setToastFocused(false); } }}
+          onKeyDown={(event) => { if (event.key === "Escape") closeToast(); }}
         >
-          <span>Removed “{removed.link.label}”</span>
-          <button type="button" className="as-plain" onClick={undo} aria-label="Undo remove">Undo</button>
+          <span>{removedLabel(removed.items)}</span>
+          <button ref={undoRef} type="button" className="as-plain" onClick={undo} aria-label={removed.items.length === 1 ? "Undo remove" : `Undo remove of ${removed.items.length} links`}>Undo</button>
         </div>
       ) : null}
 

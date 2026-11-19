@@ -7,6 +7,9 @@ html, body { margin: 0; background: var(--as-bg); }
 .lt-label { display: block; font-size: 17px; font-weight: 600; line-height: 1.4; overflow-wrap: anywhere; }
 .lt-host { display: block; margin-top: 2px; color: var(--as-muted); font-size: 14px; overflow-wrap: anywhere; }
 .lt-intro-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 0 -12px; }
+/* What Share did (copied, or the address to copy by hand), on its own line under the button. */
+.lt-share-result { flex-basis: 100%; margin: 0; padding-left: 12px; color: var(--as-muted); font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
+.lt-share-result:empty { flex-basis: auto; padding: 0; }
 .lt-hint, .lt-error { margin: -6px 0 0; font-size: 14px; line-height: 1.5; }
 .lt-hint { color: var(--as-muted); }
 .lt-error { color: var(--as-danger); font-weight: 600; }
