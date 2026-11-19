@@ -25,6 +25,11 @@ A portfolio visitor who wants to see a personal link page and try editing it loc
 - Edits are not published: other visitors always see the authored three links.
 - No account, no short links, no redirect server.
 
+## Known limits
+
+- If another tab saves while Undo is still showing and this tab adds or removes a link before the `storage` event arrives, the old Undo batch is not cancelled first, so a later Undo can act on a list it no longer matches; frozen app, not fixed (Codex report -3d777269e5).
+- Restore default links decides from the list this tab last drew, so pressed before another tab's `storage` event arrives it can overwrite links that tab just added; it should seed only when the latest saved list is still empty. Frozen app, not fixed (Codex report -3d777269e5).
+
 ## Live URL and deploy state
 
 - Live: https://linktree.bookchaowalit.com (HTTP 200 on 2026-10-23).
