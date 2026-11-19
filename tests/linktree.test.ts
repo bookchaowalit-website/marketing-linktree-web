@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_LINKS, addLink, normalizeUrl, parseLinks, removeLink } from "@/lib/linktree";
+import { DEFAULT_LINKS, addLink, linkError, linkHost, normalizeUrl, parseLinks, removeLink, restoreLink } from "@/lib/linktree";
 
 describe("normalizeUrl", () => {
   it("keeps http(s) and normalises it", () => {
@@ -51,5 +51,24 @@ describe("parseLinks", () => {
 
   it("keeps an empty saved list (the visitor removed every link)", () => {
     expect(parseLinks("[]")).toEqual([]);
+  });
+});
+
+describe("linkError, restoreLink and linkHost", () => {
+  it("names the field that blocks Add", () => {
+    expect(linkError(" ", "https://a.test")).toEqual({ field: "label", message: "Give the link a label." });
+    expect(linkError("A", "")).toEqual({ field: "url", message: "Add the address the link opens." });
+    expect(linkError("A", "javascript:alert(1)")?.message).toBe("Use a full web address starting with https:// or http://.");
+    expect(linkError("A", "https://a.test")).toBeNull();
+  });
+  it("restores a removed link at its old place, once", () => {
+    const [first, second] = DEFAULT_LINKS;
+    expect(restoreLink([second], first, 0)).toEqual([first, second]);
+    expect(restoreLink([second], first, 9)).toEqual([second, first]);
+    expect(restoreLink([first], first, 0)).toEqual([first]);
+  });
+  it("shows the host without www", () => {
+    expect(linkHost("https://www.example.test/a")).toBe("example.test");
+    expect(linkHost("not a url")).toBe("not a url");
   });
 });

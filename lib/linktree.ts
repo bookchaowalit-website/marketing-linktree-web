@@ -56,3 +56,27 @@ export const linkStore = createLocalStore<LinkItem[]>({
   serialize: (links) => JSON.stringify(links),
   getStorage: browserStorage,
 });
+
+/** Why a link cannot be added yet, or null when it can (shown inline under the field it is about). */
+export function linkError(label: string, url: string): { field: "label" | "url"; message: string } | null {
+  if (!label.trim()) return { field: "label", message: "Give the link a label." };
+  if (!url.trim()) return { field: "url", message: "Add the address the link opens." };
+  if (!normalizeUrl(url)) return { field: "url", message: "Use a full web address starting with https:// or http://." };
+  return null;
+}
+
+/** Puts a removed link back at its old position (Undo); a link with the same id already back stays single. */
+export function restoreLink(links: LinkItem[], link: LinkItem, index: number): LinkItem[] {
+  if (links.some((item) => item.id === link.id)) return links;
+  const at = Math.max(0, Math.min(index, links.length));
+  return [...links.slice(0, at), link, ...links.slice(at)];
+}
+
+/** The host a link opens, without "www.", for the line under its label. */
+export function linkHost(url: string): string {
+  try {
+    return new URL(url).host.replace(/^www\./, "");
+  } catch {
+    return url;
+  }
+}
