@@ -81,12 +81,12 @@ export function linkHost(url: string): string {
   }
 }
 
-/** The full destination without the scheme and "www." (host, path, query, hash), so two links on one host differ. */
+/** The full destination as the editor shows it: real scheme and host (www. kept), path, query and hash. */
 export function linkAddress(url: string): string {
   try {
     const parsed = new URL(url);
     const path = parsed.pathname === "/" ? "" : parsed.pathname;
-    return `${parsed.host.replace(/^www\./, "")}${path}${parsed.search}${parsed.hash}`;
+    return `${parsed.protocol}//${parsed.host}${path}${parsed.search}${parsed.hash}`;
   } catch {
     return url;
   }

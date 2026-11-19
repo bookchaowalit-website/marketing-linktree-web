@@ -8,7 +8,8 @@ import { DEFAULT_LINKS, STORAGE_KEY, addLink, linkAddress, linkError, linkHost, 
 const SOURCE = "https://github.com/bookchaowalit-website/marketing-linktree-web";
 // index: where it sat in the list when removed. next / prev: the links around it, for focus after Escape.
 type RemovedEntry = { link: LinkItem; index: number; next?: string; prev?: string };
-type RemovedBatch = { items: RemovedEntry[]; viaKeyboard: boolean };
+// saved: the list as saved right after the latest removal; Undo only applies while the saved list is still that one.
+type RemovedBatch = { items: RemovedEntry[]; viaKeyboard: boolean; saved: string };
 const removedLabel = (items: RemovedEntry[]) => (items.length === 1 ? `Removed “${items[0].link.label}”` : `Removed ${items.length} links`);
 
 function createId(): string {
@@ -118,6 +119,9 @@ export function LinkPage({ editing }: { editing: boolean }) {
       return;
     }
     linkStore.update((current) => addLink(current, label, url, createId()));
+    // This tab's own change: a pending Undo still applies, against the list as saved now.
+    // Ref only: re-setting the batch state would re-run the "focus Undo" effect and pull focus from the Label field.
+    if (removedRef.current) removedRef.current = { ...removedRef.current, saved: JSON.stringify(linkStore.getSnapshot()) };
     setAnnouncement(`Added “${label.trim()}”.`);
     setLabel("");
     setUrl("");
@@ -132,7 +136,7 @@ export function LinkPage({ editing }: { editing: boolean }) {
     linkStore.update((list) => removeLink(list, link.id));
     const entry: RemovedEntry = { link: current[index], index, next: current[index + 1]?.id, prev: index > 0 ? current[index - 1].id : undefined };
     const items = [...(removedRef.current?.items ?? []), entry];
-    setRemoved({ items, viaKeyboard });
+    setRemoved({ items, viaKeyboard, saved: JSON.stringify(linkStore.getSnapshot()) });
     setAnnouncement(`${removedLabel(items)}. Undo is available for a few seconds.`);
   }
 
@@ -145,8 +149,14 @@ export function LinkPage({ editing }: { editing: boolean }) {
   }
 
   function undo() {
-    const items = removedRef.current?.items;
-    if (!items?.length) return;
+    const batch = removedRef.current;
+    const items = batch?.items;
+    if (!batch || !items?.length) return;
+    // Another tab saved a different list (its storage event may not have arrived yet): keep that list, drop the batch.
+    if (JSON.stringify(linkStore.getSnapshot()) !== batch.saved) {
+      dropBatchForOtherTab();
+      return;
+    }
     // Latest removal first, so each index refers to the list as it was just before that removal.
     linkStore.update((current) => items.reduceRight((list, { link, index }) => restoreLink(list, link, index), current));
     setAnnouncement(items.length === 1 ? `Restored “${items[0].link.label}”.` : `Restored ${items.length} links.`);
@@ -155,17 +165,20 @@ export function LinkPage({ editing }: { editing: boolean }) {
   }
 
   // Another tab changed the saved list: the Undo batch's indexes refer to the list before that change, so it is dropped.
+  function dropBatchForOtherTab() {
+    if (!removedRef.current) return;
+    const hadFocus = toastRef.current?.contains(document.activeElement) ?? false;
+    removedRef.current = null;
+    setRemovedState(null);
+    setToastFocused(false);
+    setAnnouncement("Undo is no longer available: the links changed in another tab.");
+    // Undo held focus and is going away: keep focus on the page, in the Label field.
+    if (hadFocus) labelRef.current?.focus();
+  }
   useEffect(() => {
     const onStorage = (event: StorageEvent) => {
       if (event.key !== STORAGE_KEY && event.key !== null) return;
-      if (!removedRef.current) return;
-      const hadFocus = toastRef.current?.contains(document.activeElement) ?? false;
-      removedRef.current = null;
-      setRemovedState(null);
-      setToastFocused(false);
-      setAnnouncement("Undo is no longer available: the links changed in another tab.");
-      // Undo held focus and is going away: keep focus on the page, in the Label field.
-      if (hadFocus) labelRef.current?.focus();
+      dropBatchForOtherTab();
     };
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);

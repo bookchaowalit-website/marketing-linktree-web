@@ -219,7 +219,7 @@ describe("owner editor at /edit", () => {
     const rows = [...host.querySelectorAll(".as-row[data-link]")].slice(-2);
     const opens = rows.map((row) => row.querySelector<HTMLAnchorElement>("a.lt-dest"));
     expect(opens.map((a) => a?.getAttribute("href"))).toEqual(["https://example.test/alpha?ref=1", "https://example.test/beta?ref=1"]);
-    expect(opens.map((a) => a?.textContent)).toEqual(["example.test/alpha?ref=1 (opens in a new tab)", "example.test/beta?ref=1 (opens in a new tab)"]);
+    expect(opens.map((a) => a?.textContent)).toEqual(["https://example.test/alpha?ref=1 (opens in a new tab)", "https://example.test/beta?ref=1 (opens in a new tab)"]);
     expect(opens[0]?.getAttribute("target")).toBe("_blank");
     expect(opens[0]?.getAttribute("rel")).toBe("noopener noreferrer");
   });
@@ -241,6 +241,41 @@ describe("owner editor at /edit", () => {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(DEFAULT_LINKS));
     act(() => { window.dispatchEvent(new StorageEvent("storage", { key: STORAGE_KEY })); });
     expect(document.activeElement).toBe(field("Label"));
+  });
+
+  it("shows the real scheme and host in the editor, so http://www. and https:// links differ", () => {
+    act(() => root.render(<EditLinks />));
+    for (const url of ["http://www.example.test/project", "https://example.test/project"]) {
+      type(field("Label"), "Project");
+      type(field("Web address"), url);
+      submit();
+    }
+    const shown = [...host.querySelectorAll(".as-row[data-link] a.lt-dest")].slice(-2).map((a) => a.textContent);
+    expect(shown).toEqual(["http://www.example.test/project (opens in a new tab)", "https://example.test/project (opens in a new tab)"]);
+  });
+
+  it("Undo checks the saved list first, so a change from another tab is kept even before its storage event", () => {
+    vi.useFakeTimers();
+    act(() => root.render(<EditLinks />));
+    press(button("Remove Portfolio"));
+    const other = [{ id: "x", label: "Other tab", url: "https://other.test/" }];
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(other));
+    press(button("Undo remove"));
+    expect(JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? "[]")).toEqual(other);
+    expect(labels()).toEqual(["Other tab"]);
+    expect($(".as-toast")).toBeNull();
+    expect($('[aria-live="polite"]')?.textContent).toBe("Undo is no longer available: the links changed in another tab.");
+  });
+
+  it("an Add in this tab between a remove and Undo still lets Undo restore", () => {
+    vi.useFakeTimers();
+    act(() => root.render(<EditLinks />));
+    press(button("Remove Portfolio"));
+    type(field("Label"), "New");
+    type(field("Web address"), "https://new.test/");
+    submit();
+    press(button("Undo remove"));
+    expect(labels()).toEqual([DEFAULT_LINKS[0].label, DEFAULT_LINKS[1].label, DEFAULT_LINKS[2].label, "New"]);
   });
 
   it("gives the destination link a 44px tap target", () => {
