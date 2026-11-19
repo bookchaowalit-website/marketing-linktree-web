@@ -178,6 +178,37 @@ describe("owner editor at /edit", () => {
     expect(document.activeElement).toBe(button(`Remove ${second}`));
   });
 
+  it("Restore default links closes the Undo toast, so a later Undo cannot reorder the restored list", () => {
+    vi.useFakeTimers();
+    act(() => root.render(<EditLinks />));
+    type(field("Label"), "Custom");
+    type(field("Web address"), "https://example.test/custom");
+    submit();
+    for (const label of labels()) press(button(`Remove ${label}`));
+    expect($(".as-toast")).not.toBeNull();
+    press(button("Restore default links"));
+    expect($(".as-toast")).toBeNull();
+    expect(labels()).toEqual(DEFAULT_LINKS.map((link) => link.label));
+    expect($('[aria-live="polite"]')?.textContent).toBe("Restored the default links.");
+    // Focus moves off the gone empty-state button to the first restored row.
+    expect(document.activeElement).toBe(button(`Remove ${DEFAULT_LINKS[0].label}`));
+  });
+
+  it("shows each link's full destination and lets the owner open it to check before removing", () => {
+    act(() => root.render(<EditLinks />));
+    for (const path of ["alpha", "beta"]) {
+      type(field("Label"), "Project");
+      type(field("Web address"), `https://example.test/${path}?ref=1`);
+      submit();
+    }
+    const rows = [...host.querySelectorAll(".as-row[data-link]")].slice(-2);
+    const opens = rows.map((row) => row.querySelector<HTMLAnchorElement>("a.lt-dest"));
+    expect(opens.map((a) => a?.getAttribute("href"))).toEqual(["https://example.test/alpha?ref=1", "https://example.test/beta?ref=1"]);
+    expect(opens.map((a) => a?.textContent)).toEqual(["example.test/alpha?ref=1 (opens in a new tab)", "example.test/beta?ref=1 (opens in a new tab)"]);
+    expect(opens[0]?.getAttribute("target")).toBe("_blank");
+    expect(opens[0]?.getAttribute("rel")).toBe("noopener noreferrer");
+  });
+
   it("a pointer remove leaves focus alone and the toast reserves its height while it shows", () => {
     vi.useFakeTimers();
     act(() => root.render(<EditLinks />));

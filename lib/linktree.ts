@@ -80,3 +80,14 @@ export function linkHost(url: string): string {
     return url;
   }
 }
+
+/** The full destination without the scheme and "www." (host, path, query, hash), so two links on one host differ. */
+export function linkAddress(url: string): string {
+  try {
+    const parsed = new URL(url);
+    const path = parsed.pathname === "/" ? "" : parsed.pathname;
+    return `${parsed.host.replace(/^www\./, "")}${path}${parsed.search}${parsed.hash}`;
+  } catch {
+    return url;
+  }
+}

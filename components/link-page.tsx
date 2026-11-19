@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
 import { AppFoot, AppTop, PlusIcon } from "@/components/app-shell";
-import { DEFAULT_LINKS, addLink, linkError, linkHost, linkStore, removeLink, restoreLink, type LinkItem } from "@/lib/linktree";
+import { DEFAULT_LINKS, addLink, linkAddress, linkError, linkHost, linkStore, removeLink, restoreLink, type LinkItem } from "@/lib/linktree";
 
 const SOURCE = "https://github.com/bookchaowalit-website/marketing-linktree-web";
 // index: where it sat in the list when removed. next / prev: the links around it, for focus after Escape.
@@ -148,6 +148,16 @@ export function LinkPage({ editing }: { editing: boolean }) {
     closeToast([items[items.length - 1].link.id]);
   }
 
+  // A fresh list, not an undoable step: the Undo batch refers to the list before the reset, so it is dropped.
+  function restoreDefaults() {
+    focusRowsNext.current = [DEFAULT_LINKS[0].id];
+    removedRef.current = null;
+    setRemovedState(null);
+    setToastFocused(false);
+    linkStore.update(() => DEFAULT_LINKS);
+    setAnnouncement("Restored the default links.");
+  }
+
   const fieldError = (field: "label" | "url") => (error?.field === field ? error.message : "");
 
   return (
@@ -188,7 +198,7 @@ export function LinkPage({ editing }: { editing: boolean }) {
                 <li className="as-row" key={link.id} data-link={link.id}>
                   <div>
                     <h3>{link.label}</h3>
-                    <p>{linkHost(link.url)}</p>
+                    <p><a className="lt-dest" href={link.url} target="_blank" rel="noopener noreferrer">{linkAddress(link.url)}<span className="as-sr"> (opens in a new tab)</span></a></p>
                   </div>
                   <button type="button" className="as-plain as-danger" aria-label={`Remove ${link.label}`} onClick={(event) => remove(link, event.detail === 0)}>Remove</button>
                 </li>
@@ -212,7 +222,7 @@ export function LinkPage({ editing }: { editing: boolean }) {
             {editing ? (
               <>
                 Add the first link above, or bring back the default ones.
-                <div className="lt-empty-actions"><button type="button" className="as-plain" onClick={() => linkStore.update(() => DEFAULT_LINKS)}>Restore default links</button></div>
+                <div className="lt-empty-actions"><button type="button" className="as-plain" onClick={restoreDefaults}>Restore default links</button></div>
               </>
             ) : (
               <>
