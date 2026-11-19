@@ -1,4 +1,6 @@
 // @vitest-environment happy-dom
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToString } from "react-dom/server";
@@ -91,6 +93,19 @@ describe("public link page", () => {
     await act(async () => { button("Share this page").click(); });
     expect(writeText).not.toHaveBeenCalled();
     expect($(".lt-share-result")?.textContent).toBe("");
+  });
+
+  it("offers Copy link next to Share, so a device with no share target can still copy", async () => {
+    const share = vi.fn().mockRejectedValue(Object.assign(new Error("no target"), { name: "AbortError" }));
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "share", { value: share, configurable: true });
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    act(() => root.render(<Home />));
+    await act(async () => { button("Copy link").click(); });
+    expect(share).not.toHaveBeenCalled();
+    expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/`);
+    expect(button("Link copied")).toBeTruthy();
+    expect($(".lt-share-result")?.textContent).toBe("Page address copied to the clipboard.");
   });
 
   it("points to the hub when this browser removed every link", () => {
@@ -207,6 +222,32 @@ describe("owner editor at /edit", () => {
     expect(opens.map((a) => a?.textContent)).toEqual(["example.test/alpha?ref=1 (opens in a new tab)", "example.test/beta?ref=1 (opens in a new tab)"]);
     expect(opens[0]?.getAttribute("target")).toBe("_blank");
     expect(opens[0]?.getAttribute("rel")).toBe("noopener noreferrer");
+  });
+
+  it("drops the Undo batch when another tab changes the list, so Undo cannot rewrite that change", () => {
+    vi.useFakeTimers();
+    act(() => root.render(<EditLinks />));
+    press(button("Remove Portfolio"));
+    expect($(".as-toast")).not.toBeNull();
+    // Another tab restores the defaults.
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(DEFAULT_LINKS));
+    act(() => { window.dispatchEvent(new StorageEvent("storage", { key: STORAGE_KEY })); });
+    expect($(".as-toast")).toBeNull();
+    expect(labels()).toEqual(DEFAULT_LINKS.map((link) => link.label));
+    expect($('[aria-live="polite"]')?.textContent).toBe("Undo is no longer available: the links changed in another tab.");
+    // From the keyboard, Undo held focus; it moves to the Label field instead of the page body.
+    press(button("Remove Portfolio"), 0);
+    expect(document.activeElement).toBe(button("Undo remove"));
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(DEFAULT_LINKS));
+    act(() => { window.dispatchEvent(new StorageEvent("storage", { key: STORAGE_KEY })); });
+    expect(document.activeElement).toBe(field("Label"));
+  });
+
+  it("gives the destination link a 44px tap target", () => {
+    const css = readFileSync(resolve(__dirname, "../app/globals.css"), "utf8");
+    const rule = css.match(/\.lt-dest \{[^}]*\}/)?.[0] ?? "";
+    expect(rule).toMatch(/min-height: 44px/);
+    expect(rule).toMatch(/display: inline-flex/);
   });
 
   it("a pointer remove leaves focus alone and the toast reserves its height while it shows", () => {

@@ -15,7 +15,7 @@ A portfolio visitor who wants to see a personal link page and try editing it loc
 
 1. The three authored links (portfolio, GitHub, knowledge hub) open in a new tab.
 2. Editor at `/edit` (not linked from the public page, `noindex`): add a link (label plus an http(s) URL; other schemes get an inline error) or remove one (undoable); an empty list offers the default links back. The list is saved in localStorage and survives a reload; a saved value of the wrong shape, or a saved link that is not http(s), is ignored.
-3. Share page copies the page URL to the clipboard.
+3. Share this page opens the share sheet where there is one (else copies the page URL); Copy link beside it always copies the page URL to the clipboard. On `/edit`, a change saved from another tab ends any pending Undo.
 4. `/api/mcp` answers JSON-RPC with `get_links` and `search_links` over the authored links only (visitor edits stay in their browser); unknown tools and methods get JSON-RPC errors.
 5. Front-end and server errors go to Sentry (errors only, personal data stripped) when `NEXT_PUBLIC_SENTRY_DSN` is set.
 

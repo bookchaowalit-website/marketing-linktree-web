@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
 import { AppFoot, AppTop, PlusIcon } from "@/components/app-shell";
-import { DEFAULT_LINKS, addLink, linkAddress, linkError, linkHost, linkStore, removeLink, restoreLink, type LinkItem } from "@/lib/linktree";
+import { DEFAULT_LINKS, STORAGE_KEY, addLink, linkAddress, linkError, linkHost, linkStore, removeLink, restoreLink, type LinkItem } from "@/lib/linktree";
 
 const SOURCE = "https://github.com/bookchaowalit-website/marketing-linktree-web";
 // index: where it sat in the list when removed. next / prev: the links around it, for focus after Escape.
@@ -18,8 +18,9 @@ function createId(): string {
 
 /**
  * Shares the page: the native share sheet where there is one, else (or when the sheet cannot open, e.g. in an
- * iframe without web-share) the address on the clipboard. Dismissing the sheet is not a failure. The result is
- * shown next to the button and announced.
+ * iframe without web-share) the address on the clipboard. Dismissing the sheet is not a failure, and a device with
+ * no share target reports the same AbortError, so Copy link sits beside Share and copies directly. The result is
+ * shown next to the buttons and announced.
  */
 function ShareButton() {
   const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
@@ -34,6 +35,10 @@ function ShareButton() {
         if (error instanceof Error && error.name === "AbortError") return;
       }
     }
+    await copy();
+  }
+  async function copy() {
+    const url = window.location.origin + "/";
     try {
       if (!navigator.clipboard?.writeText) throw new Error("no clipboard");
       await navigator.clipboard.writeText(url);
@@ -46,7 +51,8 @@ function ShareButton() {
   const message = state === "copied" ? "Page address copied to the clipboard." : state === "failed" ? `Could not share or copy. The address is ${window.location.origin}/` : "";
   return (
     <>
-      <button type="button" className="as-plain" onClick={() => void share()}>{state === "copied" ? "Link copied" : "Share this page"}</button>
+      <button type="button" className="as-plain" onClick={() => void share()}>Share this page</button>
+      <button type="button" className="as-plain" onClick={() => void copy()}>{state === "copied" ? "Link copied" : "Copy link"}</button>
       <p className="lt-share-result" role="status">{message}</p>
     </>
   );
@@ -147,6 +153,23 @@ export function LinkPage({ editing }: { editing: boolean }) {
     // Undone: back to the restored link (the latest one, where the user was last).
     closeToast([items[items.length - 1].link.id]);
   }
+
+  // Another tab changed the saved list: the Undo batch's indexes refer to the list before that change, so it is dropped.
+  useEffect(() => {
+    const onStorage = (event: StorageEvent) => {
+      if (event.key !== STORAGE_KEY && event.key !== null) return;
+      if (!removedRef.current) return;
+      const hadFocus = toastRef.current?.contains(document.activeElement) ?? false;
+      removedRef.current = null;
+      setRemovedState(null);
+      setToastFocused(false);
+      setAnnouncement("Undo is no longer available: the links changed in another tab.");
+      // Undo held focus and is going away: keep focus on the page, in the Label field.
+      if (hadFocus) labelRef.current?.focus();
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, []);
 
   // A fresh list, not an undoable step: the Undo batch refers to the list before the reset, so it is dropped.
   function restoreDefaults() {
